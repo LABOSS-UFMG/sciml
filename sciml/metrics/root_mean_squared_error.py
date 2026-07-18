@@ -16,8 +16,10 @@ class RootMeanSquaredError(MetricBase):
     >>> metric = RootMeanSquaredError()
     >>> metric.evaluate(predictions, targets)
     """
-
-    name = "rmse"
+    
+    def __init__(self):
+        super().__init__("rmse")
+        return
 
     def evaluate(
             self,

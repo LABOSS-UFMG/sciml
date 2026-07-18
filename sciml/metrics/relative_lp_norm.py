@@ -2,7 +2,7 @@
 import torch
 
 from sciml.core.metric import MetricBase
-from sciml.utils import validation
+from sciml.utils import checker
 
 #####################################################################################
 class RelativeLpNorm(MetricBase):
@@ -17,8 +17,7 @@ class RelativeLpNorm(MetricBase):
     >>> metric = RelativeLpNorm(p=2)
     >>> metric.evaluate(predictions, targets)
     """
-    name = "relative_l"
-
+    
     def __init__(
             self,
             p: int,
@@ -33,10 +32,11 @@ class RelativeLpNorm(MetricBase):
             Small constant added to the denominator to avoid division by
             zero when ``targets`` is (or is close to) the zero tensor.
         """
+        super().__init__("relative_l")
         # ---------------------------------------------------------------------------
         # > Validate
-        validation.is_integer(p)
-        validation.is_float(eps)
+        checker.is_integer(p)
+        checker.is_float(eps)
 
         if p < 1:
             raise ValueError("p must satisfy p >= 1")

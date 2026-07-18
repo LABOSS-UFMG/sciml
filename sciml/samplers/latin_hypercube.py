@@ -2,131 +2,103 @@
 import numpy as np
 import torch
 
-from typing import Callable, List, Optional, Tuple, Union
+from typing import Callable, List, Optional, Tuple, Iterable
 
 from scipy.stats import qmc
 
 from sciml.core.sampler import SamplerBase
-from sciml.core.contracts import Batch
-from sciml.utils import validation
+from sciml.core.context import Context
+from sciml.utils import checker
 
 #####################################################################################
 class LatinHypercube(SamplerBase):
     """
     Sampler based on Latin Hypercube Sampling (LHS).
 
-    LHS is a stratified sampling technique: each dimension of the unit cube
-    ``[0, 1]^d`` is divided into ``n_points`` equal intervals, and exactly
-    one sample falls in each interval per dimension. This produces a much
-    more uniform coverage of the domain than plain random sampling, with
-    the same number of points — useful for collocation, boundary, and
-    initial-condition points alike.
+    LHS is a stratified sampling technique in which each sampled dimension is
+    divided into ``num_points`` equally sized intervals and exactly one sample
+    is drawn from each interval. Compared to purely random sampling, this
+    produces a more uniform coverage of the sampling domain using the same
+    number of points.
 
-    In addition to standard LHS, this sampler supports:
-
-    - **margin**: shrinking each sampled dimension away from its edges
-      (e.g. sampling in ``[eps, 1 - eps]`` instead of ``[0, 1]``), useful
-      to avoid placing points exactly on a boundary.
-    - **rescaling**: mapping the unit cube to arbitrary ``(low, high)``
-      bounds per dimension.
-    - **constant insertions**: inserting one or more fixed-value
-      dimensions at specific positions in the output, without sampling
-      them. This is how a boundary is typically defined: e.g. for a 2D
-      spatial + time problem, fixing ``x = 0`` while still sampling ``y``
-      and ``t`` freely.
-
-    Note
-    ----
-    Every batch is precomputed once, at construction time, and stored
-    internally. Calling ``next()`` repeatedly cycles through these batches
-    in order; once the last one is returned, the internal pointer resets
-    to the first batch (the same points are reused, not resampled).
+    The generated samples are precomputed once during construction and divided
+    into batches. Each call to :meth:`next` returns a :class:`Context`
+    containing one batch of sampled variables. After the last batch is
+    returned, the sampler automatically cycles back to the first one.
 
     Examples
     --------
-    Collocation points ``(x, t)`` in ``[0, 1] x [0, 1]``, avoiding the
-    exact edges, no known targets (used with a residual loss):
+    Collocation points ``(x, t)`` sampled over
+    ``[0, 1] x [0, 10]``:
 
     >>> sampler = LatinHypercube(
-    ...     n_points=1000,
+    ...     dim=2,
+    ...     num_points=1000,
     ...     batch_size=100,
-    ...     bounds=[(0.0, 1.0), (0.0, 1.0)],
-    ...     margin=1e-4,
-    ...     input_key="xt",
+    ...     bounds=[(1, (0.0, 10.0))],
+    ...     input_keys=["x", "t"],
     ... )
-    >>> batch = sampler.next()   # Batch(inputs={"xt": tensor[100, 2]}, targets=None)
+    >>> context = sampler.next()
 
-    Boundary points at ``x = 0``, sampling only ``t``, with a known target
-    computed from a NumPy function (e.g. ``u(0, t) = 0``):
+    Boundary points at ``x = 0`` while sampling only ``t``:
 
     >>> sampler = LatinHypercube(
-    ...     n_points=200,
-    ...     batch_size=50,
-    ...     bounds=[(0.0, 1.0)],              # only t is sampled
-    ...     insertions=[(0, 0.0)],            # x = 0 inserted at position 0
-    ...     input_key="xt_boundary",
-    ...     target_key="u",
-    ...     target_fn=lambda xt: np.zeros((xt.shape[0], 1)),
+    ...     dim=2,
+    ...     num_points=1000,
+    ...     batch_size=100,
+    ...     bounds=[(1, (0.0, 10.0))],
+    ...     input_keys=["x", "t"],
+    ...     target_keys=["u"],
+    ...     insertions=[(0, 0.0)],
+    ...     target_fn=lambda x, t: np.zeros((x.shape[0], 1)),
     ... )
+    >>> context = sampler.next()
     """
 
     def __init__(
-        self,
-        name: str,
-        n_points: int,
-        batch_size: int,
-        bounds: List[Tuple[float, float]],
-        margin: Union[float, List[float]] = 0.0,
-        insertions: Optional[List[Tuple[int, float]]] = None,
-        input_key: str = "x",
-        target_key: Optional[str] = None,
-        target_fn: Optional[Callable[[np.ndarray], np.ndarray]] = None,
-        seed: Optional[int] = None,
-        device: str = "cpu",
-        dtype: torch.dtype = torch.float32,
-    ) -> None:
+            self,
+            dim: int,
+            num_points: int,
+            batch_size: int,
+            input_keys: Optional[Iterable[str]] = None,
+            bounds: Optional[List[Tuple[int, Tuple[float, float]]]] = None,
+            insertions: Optional[List[Tuple[int, float]]] = None,
+            target_keys: Optional[Iterable[str]] = None,
+            target_fn: Optional[Callable[[Iterable[np.ndarray]], Iterable[np.ndarray]]] = None,
+            seed: Optional[int] = None,
+            device: str = "cpu",
+            dtype: torch.dtype = torch.float32,
+        ) -> None:
         """
         Parameters
         ----------
-        name : str
-            Sampler named used to pass to the correct loss.
-        n_points : int
-            Total number of points to sample.
+        dim : int
+            Number of input dimensions.
+        num_points : int
+            Total number of sampling points.
         batch_size : int
-            Number of points returned per call to ``next()``. The last
-            batch may be smaller than ``batch_size`` if ``n_points`` is
-            not a multiple of it.
-        bounds : List[Tuple[float, float]]
-            ``(low, high)`` bounds for each *sampled* dimension (i.e. not
-            counting any dimension listed in ``insertions``). The number
-            of sampled dimensions is ``len(bounds)``.
-        margin : float or List[float], default=0.0
-            Fraction of each sampled dimension's range to exclude at both
-            ends (e.g. ``margin=0.01`` samples in ``[0.01, 0.99]`` instead
-            of ``[0, 1]``, before rescaling to ``bounds``). A single float
-            applies the same margin to every sampled dimension; a list
-            must have one value per sampled dimension. Must satisfy
-            ``0 <= margin < 0.5``.
+            Number of points returned by each call to :meth:`next`. The last
+            batch may contain fewer than ``batch_size`` points if
+            ``num_points`` is not an exact multiple of ``batch_size``.
+         input_keys : Iterable[str]
+            Names used to store the sampled input variables in the returned
+            :class:`Context`. The number of keys must equal ``dim``.
+        bounds : List[Tuple[int, Tuple[float, float]]], optional
+            List of ``(dimension, (lower, upper))`` tuples specifying the
+            sampling interval for selected dimensions. Dimensions not listed
+            remain sampled over the unit interval ``[0, 1]``.
         insertions : List[Tuple[int, float]], optional
-            List of ``(position, value)`` pairs. Each inserts a constant
-            column with the given ``value`` at ``position`` (0-indexed) in
-            the *final* output (i.e. after combining with the sampled
-            dimensions). Positions refer to the output array, which has
-            ``len(bounds) + len(insertions)`` columns in total.
-        input_key : str, default="x"
-            Key used to store the sampled points in ``batch.inputs``.
-        target_key : str, optional
-            Key used to store the computed targets in ``batch.targets``.
-            Required if ``target_fn`` is provided.
-        target_fn : Callable[[np.ndarray], np.ndarray], optional
-            Function that receives the full sampled array as a NumPy
-            array (shape ``[n_points, total_dims]``, i.e. already
-            including any inserted constant columns) and returns a NumPy
-            array of targets (shape ``[n_points, ...]``), used to populate
-            ``batch.targets[target_key]``. If ``None``, ``batch.targets``
-            is ``None`` for every batch (typical for collocation points).
+            List of ``(dimension, value)`` tuples specifying dimensions whose
+            sampled values are replaced by a constant.
+        target_keys : Iterable[str], optional
+            Names used to store the target variables returned by
+            ``target_fn``.
+        target_fn : Callable, optional
+            Function used to generate target variables from the sampled input
+            points. The function receives one NumPy array for each input
+            dimension and returns one NumPy array for each target variable.
         seed : int, optional
-            Seed used by the underlying LHS generator, for reproducibility.
+            Seed used by the underlying Latin Hypercube generator.
         device : str, default="cpu"
             Device on which the generated tensors are stored.
         dtype : torch.dtype, default=torch.float32
@@ -134,63 +106,59 @@ class LatinHypercube(SamplerBase):
         """
         # ---------------------------------------------------------------------------
         # > Validation
-        validation.is_string(name)
-        validation.is_integer(n_points)
-        validation.is_integer(batch_size)
-        validation.is_string(input_key)
-        validation.is_string(device)
-        validation.is_dtype(dtype, torch.dtype)
+        checker.is_integer(dim)
+        checker.is_integer(num_points)
+        checker.is_integer(batch_size)
 
-        if n_points <= 0:
-            raise ValueError("n_points must be a positive integer")
+        if dim <= 0:
+            raise "dim must be greater than 0."
+        
+        if num_points <= 0:
+            raise "dim must be greater than 0."
+        
         if batch_size <= 0:
-            raise ValueError("batch_size must be a positive integer")
-        if not bounds:
-            raise ValueError("bounds must contain at least one (low, high) pair")
-
-        n_sampled_dims = len(bounds)
-        insertions = insertions or []
-        total_dims = n_sampled_dims + len(insertions)
-
-        insertion_positions = {pos: value for pos, value in insertions}
-        if len(insertion_positions) != len(insertions):
-            raise ValueError("insertions contain duplicate positions")
-        for pos in insertion_positions:
-            if not (0 <= pos < total_dims):
-                raise ValueError(
-                    f"insertion position {pos} out of range for total_dims={total_dims}"
-                )
-
-        if isinstance(margin, (int, float)):
-            margins = [float(margin)] * n_sampled_dims
-        else:
-            margins = list(margin)
-            if len(margins) != n_sampled_dims:
-                raise ValueError("margin list must have one value per sampled dimension")
-        for eps in margins:
-            if not (0.0 <= eps < 0.5):
-                raise ValueError("each margin value must satisfy 0 <= margin < 0.5")
-
-        if target_fn is not None:
-            validation.is_callable(target_fn)
-            if target_key is None:
-                raise ValueError("target_key must be provided when target_fn is set")
-            validation.is_string(target_key)
-
-        if seed is not None:
-            validation.is_integer(seed)
+            raise "dim must be greater than 0."
+        
+        if batch_size > num_points:
+            raise "num_points must be greater than batch_size."
+        
+        if not (input_keys is None):
+            checker.is_iterable(input_keys, dtype=str)
+        
+        if not (bounds is None):
+            checker.is_iterable(bounds)
+            for idx, (lower, upper) in bounds:
+                checker.is_integer(idx)
+                checker.is_float(lower)
+                checker.is_float(upper)
+        
+        if not (insertions is None):
+            checker.is_iterable(insertions)
+            for idx, value in insertions:
+                checker.is_integer(idx)
+                checker.is_float(value)
+        
+        if not (target_keys is None):
+            checker.is_iterable(target_keys, dtype=str)
+        
+        if not (target_fn is None):
+            checker.is_callable(target_fn)
+        
+        if not (seed is None):
+            checker.is_integer(seed)
+        
+        checker.is_string(device)
+        checker.is_dtype(dtype, torch.dtype)
 
         # ---------------------------------------------------------------------------
         # > Inputs
-        self.name = name
-        self.n_points = n_points
+        self.dim = dim
+        self.num_points = num_points
         self.batch_size = batch_size
+        self.input_keys = input_keys if not (input_keys is None) else [f"x{i+1}" for i in range(dim)]
         self.bounds = bounds
-        self.margins = margins
-        self.insertion_positions = insertion_positions
-        self.total_dims = total_dims
-        self.input_key = input_key
-        self.target_key = target_key
+        self.insertions = insertions
+        self.target_keys = target_keys
         self.target_fn = target_fn
         self.seed = seed
         self.device = device
@@ -204,72 +172,67 @@ class LatinHypercube(SamplerBase):
         # ---------------------------------------------------------------------------
         return
 
-    def _build_batches(self) -> List[Batch]:
+    def _build_batches(self) -> List[List[torch.Tensor]]:
         """
-        Generate the full set of LHS points and split them into batches.
+        Generate all sampling points and split them into batches.
 
         Returns
         -------
-        List[Batch]
-            The precomputed list of batches, cycled through by ``next()``.
+        List[List[torch.Tensor | None]]
+            Precomputed batches. Each element contains a tensor of sampled
+            inputs and, optionally, a tensor of target values.
         """
         # ---------------------------------------------------------------------------
         # > Sample the unit cube via Latin Hypercube Sampling
-        n_sampled_dims = len(self.bounds)
-        engine = qmc.LatinHypercube(d=n_sampled_dims, seed=self.seed)
-        unit_samples = engine.random(n=self.n_points)  # shape [n_points, n_sampled_dims]
+        engine = qmc.LatinHypercube(d=self.dim, seed=self.seed)
+        samples = engine.random(n=self.num_points)
 
-        # > Apply margin and rescale to `bounds`
-        scaled = np.empty_like(unit_samples)
-        for i, (low, high) in enumerate(self.bounds):
-            eps = self.margins[i]
-            u = eps + (1.0 - 2.0 * eps) * unit_samples[:, i]
-            scaled[:, i] = low + (high - low) * u
+        # > Rescale to `bounds`
+        if not (self.bounds is None):
+            for i, (low, high) in self.bounds:
+                samples[:, i] = low + (high - low) * samples[:, i]
 
-        # > Assemble the final array, inserting constant columns
-        full = np.empty((self.n_points, self.total_dims), dtype=np.float64)
-        sampled_idx = 0
-        for col in range(self.total_dims):
-            if col in self.insertion_positions:
-                full[:, col] = self.insertion_positions[col]
-            else:
-                full[:, col] = scaled[:, sampled_idx]
-                sampled_idx += 1
+        # > Replace some columns for constant values
+        if not (self.insertions is None):
+            for i, v in self.insertions:
+                samples[:, i] = v
 
         # > Compute targets (once, over the full NumPy array) if requested
-        targets_full = self.target_fn(full) if self.target_fn is not None else None
+        if not (self.target_fn is None):
+            targets = self.target_fn(*[samples[:, i:i+1] for i in range(self.dim)])
+        else:
+            targets = None
 
         # > Convert to torch and split into batches
-        x_full = torch.as_tensor(full, dtype=self.dtype)
-        x_chunks = torch.split(x_full, self.batch_size, dim=0)
+        samples = torch.as_tensor(samples, dtype=self.dtype)
+        samples = torch.split(samples, self.batch_size, dim=0)
 
-        if targets_full is not None:
-            target_full_tensor = torch.as_tensor(targets_full, dtype=self.dtype)
-            target_chunks = torch.split(target_full_tensor, self.batch_size, dim=0)
-        else:
-            target_chunks = None
+        if not (targets is None):
+            targets = torch.as_tensor(targets, dtype=self.dtype)
+            targets = torch.split(targets, self.batch_size, dim=0)
 
         # ---------------------------------------------------------------------------
+        # > Create batches
         batches = []
-        for i, x_chunk in enumerate(x_chunks):
-            if target_chunks is not None:
-                targets = {self.target_key: target_chunks[i].to(self.device)}
-            else:
-                targets = None
-            batches.append(Batch(inputs={self.input_key: x_chunk.to(device=self.device)}, targets=targets))
+        for i in range(len(samples)):
+            batch = [samples[i], targets[i] if not (targets is None) else None]
+            batches.append(batch)
 
         # ---------------------------------------------------------------------------
         return batches
 
-    def next(self) -> Batch:
+    def next(self) -> Context:
         """
-        Return the next precomputed batch, cycling back to the first one
-        once the last batch has been returned.
+        Return the next precomputed evaluation context.
+
+        The returned context contains the sampled input variables and,
+        optionally, the corresponding target variables. Once the last batch has
+        been returned, the sampler automatically cycles back to the first one.
 
         Returns
         -------
-        Batch
-            The next batch of sampled points.
+        Context
+            Evaluation context containing one batch of sampled variables.
         """
         # ---------------------------------------------------------------------------
         batch = self._batches[self._pointer]
@@ -277,8 +240,18 @@ class LatinHypercube(SamplerBase):
         self._pointer += 1
         if self._pointer >= len(self._batches):
             self._pointer = 0
-
+        
         # ---------------------------------------------------------------------------
-        return batch
+        context = Context()
+        
+        for i, key in enumerate(self.input_keys):
+            context[key] = batch[0][:, i:i+1]
+        
+        if not (batch[1] is None):
+            for i, key in enumerate(self.target_keys):
+                context[key] = batch[1][:, i:i+1]
+        
+        # ---------------------------------------------------------------------------
+        return context
 
 #####################################################################################

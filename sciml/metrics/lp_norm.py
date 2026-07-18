@@ -2,7 +2,7 @@
 import torch
 
 from sciml.core.metric import MetricBase
-from sciml.utils import validation
+from sciml.utils import checker
 
 #####################################################################################
 class LpNorm(MetricBase):
@@ -17,18 +17,20 @@ class LpNorm(MetricBase):
     >>> metric = LpNorm(p=2)
     >>> metric.evaluate(predictions, targets)
     """
-    name = "l"
-
-    def __init__(self, p: int = 2) -> None:
+    def __init__(
+            self,
+            p: int = 2,
+        ) -> None:
         """
         Parameters
         ----------
         p : int
             Order of the norm. Must satisfy ``p >= 1``. Default is 2.
         """
+        super().__init__("l")
         # ---------------------------------------------------------------------------
         # > Validation
-        validation.is_integer(p)
+        checker.is_integer(p)
         if p < 1:
             raise ValueError("p must satisfy p >= 1")
 

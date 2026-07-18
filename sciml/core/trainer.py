@@ -19,7 +19,7 @@ class TrainerBase(ABC):
     (e.g. ``StandardTrainer``), and focus on implementing the problem
     specific parts of your model (namely, a ``LossBase`` subclass).
     """
-
+    
     @abstractmethod
     def fit(self, *args, **kargs) -> Any:
         """

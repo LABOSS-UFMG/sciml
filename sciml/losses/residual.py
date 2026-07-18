@@ -5,11 +5,10 @@ from abc import abstractmethod
 from typing import Dict, Any
 
 from sciml.core.loss import LossBase
-from sciml.core.contracts import Batch
+from sciml.core.context import Context
 from sciml.core.metric import MetricBase
 from sciml.metrics import MeanSquaredError
-from sciml.utils import validation
-from sciml.utils.autograd import derivative
+from sciml.utils import checker
 
 #####################################################################################
 class Residual(LossBase):
@@ -41,22 +40,20 @@ class Residual(LossBase):
     ...         super().__init__(**kwargs)
     ...         self.alpha = alpha
     ...
-    ...     def residual(self, network, x):
-    ...         u = network(x)
-    ...         grad_u = self.derivative(u, x)          # [u_x, u_t]
-    ...         u_x, u_t = grad_u[:, 0:1], grad_u[:, 1:2]
-    ...         u_xx = self.derivative(u_x, x)[:, 0:1]
+    ...     def residual(self, context):
+    ...         x = context["x"]
+    ...         t = context["t"]
+    ...         u = context["u"]
+    ...
+    ...         u_xx = context.partial(u, x, order=2)
+    ...         u_t = context.partial(u, t)
+    ...
     ...         return u_t - self.alpha * u_xx
     >>>
     >>> loss = HeatEquationLoss(
-    ...     alpha=0.1, name="heat_residual", weight=1.0, input_key="xt",
+    ...     alpha=0.1, name="heat_residual", weight=1.0,
     ... )
     """
-
-    # Convenience alias so subclasses can call `self.derivative(...)`
-    # without an extra import. See `sciml.utils.autograd.derivative` for
-    # the full implementation and docstring.
-    derivative = staticmethod(derivative)
 
     def __init__(
             self,
@@ -78,9 +75,9 @@ class Residual(LossBase):
         """
         # ---------------------------------------------------------------------------
         # > Validation
-        validation.is_string(name)
-        validation.is_float(weight)
-        validation.is_metric(reduction)
+        checker.is_string(name)
+        checker.is_float(weight)
+        checker.is_dtype(reduction, MetricBase)
 
         # ---------------------------------------------------------------------------
         # > Inputs
@@ -92,7 +89,7 @@ class Residual(LossBase):
         return
 
     @abstractmethod
-    def residual(self, network: torch.nn.Module, data: Dict[str, Any]) -> torch.Tensor:
+    def residual(self, context: Context) -> torch.Tensor:
         """
         Compute the PDE residual based on the batch.
 
@@ -102,10 +99,8 @@ class Residual(LossBase):
 
         Parameters
         ----------
-        network : torch.nn.Module
-            Neural network being trained.
-        data : Dict[str, Any]
-            Data of batch.inputs.
+        context : Context
+            Evaluation context produced by the objective.
 
         Returns
         -------
@@ -114,16 +109,14 @@ class Residual(LossBase):
         """
         pass
 
-    def evaluate(self, network: torch.nn.Module, batch: Batch) -> torch.Tensor:
+    def evaluate(self, context: Context) -> torch.Tensor:
         """
         Compute the residual loss for this batch of sampled points.
 
         Parameters
         ----------
-        network : torch.nn.Module
-            Neural network being trained.
-        batch : Batch
-            Must contain ``self.input_key`` in ``batch.inputs``.
+        context : Context
+            Evaluation context produced by the objective.
 
         Returns
         -------
@@ -131,10 +124,10 @@ class Residual(LossBase):
             Scalar tensor representing the loss.
         """
         # ---------------------------------------------------------------------------
-        residual = self.residual(network, batch.inputs)
-        target = torch.zeros_like(residual)
+        predictions = self.residual(context)
+        targets = torch.zeros_like(predictions)
 
         # ---------------------------------------------------------------------------
-        return self.reduction.evaluate(residual, target)
+        return self.reduction.evaluate(predictions, targets)
 
 #####################################################################################

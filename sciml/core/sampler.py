@@ -1,7 +1,7 @@
 #####################################################################################
 from abc import ABC, abstractmethod
 
-from sciml.core.contracts import Batch
+from sciml.core.context import Context
 
 #####################################################################################
 class SamplerBase(ABC):
@@ -20,20 +20,16 @@ class SamplerBase(ABC):
     sampling on a rectangular domain). Subclass this only when a new
     sampling strategy or a non-trivial geometry is required.
     """
-    # Subclasses should override:
-    name: str       # Short identifier used when logging or referring to this sampler.
-
+    
     @abstractmethod
-    def next(self) -> Batch:
+    def next(self) -> Context:
         """
         Generate the next batch of sampled points.
 
         Returns
         -------
-        Batch
-            A batch containing the sampled points (and, if applicable,
-            associated target data) to be consumed by a network and a
-            ``LossBase`` (see ``sciml.core.contracts.Batch``).
+        context : Context
+            Evaluation context containing all variables required by the neural network.
         """
         pass
 

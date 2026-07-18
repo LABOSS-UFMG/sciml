@@ -15,7 +15,10 @@ class MaxError(MetricBase):
     >>> metric = MaxError()
     >>> metric.evaluate(predictions, targets)
     """
-    name = "max_error"
+    
+    def __init__(self):
+        super().__init__("max_error")
+        return
 
     def evaluate(
             self,

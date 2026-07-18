@@ -16,7 +16,10 @@ class MeanAbsoluteError(MetricBase):
     >>> metric = MeanAbsoluteError()
     >>> metric.evaluate(predictions, targets)
     """
-    name = "mae"
+    
+    def __init__(self):
+        super().__init__("mae")
+        return
 
     def evaluate(
             self,

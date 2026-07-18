@@ -16,7 +16,10 @@ class MeanSquaredError(MetricBase):
     >>> metric = MeanSquaredError()
     >>> metric.evaluate(predictions, targets)
     """
-    name = "mse"
+    
+    def __init__(self):
+        super().__init__("mse")
+        return
 
     def evaluate(
             self,

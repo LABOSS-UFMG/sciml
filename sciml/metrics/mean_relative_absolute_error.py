@@ -19,7 +19,6 @@ class MeanRelativeAbsoluteError(MetricBase):
     >>> metric = MeanRelativeAbsoluteError()
     >>> metric.evaluate(predictions, targets)
     """
-    name = "mrae"
 
     def __init__(
             self,
@@ -31,9 +30,8 @@ class MeanRelativeAbsoluteError(MetricBase):
         eps : float, default=1e-8
             Small value added to the denominator to avoid division by zero.
         """
-
+        super().__init__("mrae")
         self.eps = eps
-
         return
 
     def evaluate(

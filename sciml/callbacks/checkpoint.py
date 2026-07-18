@@ -1,9 +1,11 @@
 #####################################################################################
 import torch
 
+from typing import Union, Iterable, Dict, Optional
+
 from sciml.core.callback import CallbackBase
 from sciml.utils import serialization
-from sciml.utils import validation
+from sciml.utils import checker
 
 #####################################################################################
 class Checkpoint(CallbackBase):
@@ -31,6 +33,8 @@ class Checkpoint(CallbackBase):
             self,
             directory: str,
             frequency: int,
+            network: Union[torch.nn.Module, Iterable[torch.nn.Module], Dict[str, torch.nn.Module]],
+            optimizer: Optional[Union[torch.optim.Optimizer, Iterable[torch.optim.Optimizer], Dict[str, torch.optim.Optimizer]]] = None,
             filename_template: str = "checkpoint_{iteration}.pt",
         ) -> None:
         """
@@ -48,13 +52,13 @@ class Checkpoint(CallbackBase):
         """
         # ---------------------------------------------------------------------------
         # > Validation
-        validation.is_string(directory)
-        validation.is_integer(frequency)
+        checker.is_string(directory)
+        checker.is_integer(frequency)
 
         if frequency <= 0:
             raise ValueError("frequency must be a positive integer")
         
-        validation.is_string(filename_template)
+        checker.is_string(filename_template)
         if "{iteration}" not in filename_template:
             raise ValueError("filename_template must contain the '{iteration}' placeholder")
 
@@ -62,6 +66,8 @@ class Checkpoint(CallbackBase):
         # > Inputs
         self.directory = directory.rstrip("/")
         self.frequency = frequency
+        self.network = network
+        self.optimizer = optimizer
         self.filename_template = filename_template
 
         # ---------------------------------------------------------------------------
@@ -99,8 +105,6 @@ class Checkpoint(CallbackBase):
 
     def on_iteration_end(
             self,
-            network: torch.nn.Module,
-            optimizer: torch.optim.Optimizer,
             iteration: int,
         ) -> None:
         """
@@ -120,8 +124,8 @@ class Checkpoint(CallbackBase):
         if iteration % self.frequency == 0:
             serialization.save_checkpoint(
                 self._path_for(iteration),
-                network=network,
-                optimizer=optimizer,
+                network=self.network,
+                optimizer=self.optimizer,
             )
 
         # ---------------------------------------------------------------------------
@@ -129,8 +133,6 @@ class Checkpoint(CallbackBase):
 
     def on_train_end(
             self,
-            network: torch.nn.Module,
-            optimizer: torch.optim.Optimizer,
             iteration: int,
         ) -> None:
         """
@@ -149,8 +151,8 @@ class Checkpoint(CallbackBase):
         if iteration % self.frequency != 0:
             serialization.save_checkpoint(
                 self._path_for(iteration),
-                network=network,
-                optimizer=optimizer,
+                network=self.network,
+                optimizer=self.optimizer,
             )
 
         # ---------------------------------------------------------------------------
@@ -158,8 +160,6 @@ class Checkpoint(CallbackBase):
 
     def on_exception(
             self,
-            network: torch.nn.Module,
-            optimizer: torch.optim.Optimizer,
             iteration: int,
         ) -> None:
         """
@@ -177,8 +177,8 @@ class Checkpoint(CallbackBase):
         # ---------------------------------------------------------------------------
         serialization.save_checkpoint(
             f"{self.directory}/recovery_{iteration}.pt",
-            network=network,
-            optimizer=optimizer,
+            network=self.network,
+            optimizer=self.optimizer,
         )
 
         # ---------------------------------------------------------------------------

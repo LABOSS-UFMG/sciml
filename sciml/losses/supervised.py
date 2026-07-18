@@ -1,13 +1,13 @@
 #####################################################################################
 import torch
 
-from typing import Optional
+from typing import Iterable
 
 from sciml.core.loss import LossBase
-from sciml.core.contracts import Batch
+from sciml.core.context import Context
 from sciml.core.metric import MetricBase
 from sciml.metrics import MeanSquaredError
-from sciml.utils import validation
+from sciml.utils import checker
 
 #####################################################################################
 class Supervised(LossBase):
@@ -36,8 +36,8 @@ class Supervised(LossBase):
     >>> initial_loss = Supervised(
     ...     name="initial_condition",
     ...     weight=1.0,
-    ...     input_key="xt0",
-    ...     target_key="u0",
+    ...     input_keys=["xt0"],
+    ...     target_keys=["u0"],
     ... )
     >>> initial_loss.evaluate(network, batch)
     """
@@ -45,9 +45,9 @@ class Supervised(LossBase):
     def __init__(
             self,
             name: str,
-            weight: float,
-            input_key: str,
-            target_key: str,
+            input_keys: Iterable[str],
+            target_keys: Iterable[str],
+            weight: float = 1.0,
             reduction: MetricBase = MeanSquaredError(),
         ) -> None:
         """
@@ -57,14 +57,14 @@ class Supervised(LossBase):
             Short identifier used when logging or plotting this loss
             (e.g. ``"initial_condition"``, ``"boundary_condition"``,
             ``"observational"``).
+        input_keys : Iterable[str]
+            Keys used to retrieve the sampled inputs from ``context``
+            (e.g. ``"xt0"`` for initial-condition points).
+        target_keys : Iterable[str]
+            Keys used to retrieve the reference values from
+            ``context`` (e.g. ``"u0"`` for the known initial values).
         weight : float
             Scalar weight applied to this loss when combined with others.
-        input_key : str
-            Key used to retrieve the sampled inputs from ``batch.inputs``
-            (e.g. ``"xt0"`` for initial-condition points).
-        target_key : str
-            Key used to retrieve the reference values from
-            ``batch.targets`` (e.g. ``"u0"`` for the known initial values).
         reduction : MetricBase
             Metric used to reduce the difference between the network's
             prediction and the target to a scalar loss. Defaults to
@@ -75,53 +75,42 @@ class Supervised(LossBase):
         """
         # ---------------------------------------------------------------------------
         # > Validation
-        validation.is_string(name)
-        validation.is_float(weight)
-        validation.is_string(input_key)
-        validation.is_string(target_key)
-        validation.is_metric(reduction)
+        checker.is_string(name)
+        checker.is_float(weight)
+        checker.is_iterable(input_keys, dtype=str)
+        checker.is_iterable(target_keys, dtype=str)
+        checker.is_dtype(reduction, MetricBase)
 
         # ---------------------------------------------------------------------------
         # > Inputs
         self.name = name
         self.weight = weight
-        self.input_key = input_key
-        self.target_key = target_key
+        self.input_keys = input_keys
+        self.target_keys = target_keys
         self.reduction = reduction
 
         # ---------------------------------------------------------------------------
         return
 
-    def evaluate(self, network: torch.nn.Module, batch: Batch) -> torch.Tensor:
+    def evaluate(self, context: Context) -> torch.Tensor:
         """
         Compute the loss for this batch of known points.
 
         Parameters
         ----------
-        network : torch.nn.Module
-            Neural network being trained.
-        batch : Batch
-            Must contain ``self.input_key`` in ``batch.inputs`` and
-            ``self.target_key`` in ``batch.targets``.
+        context : Context
+            Evaluation context produced by the objective.
 
         Returns
         -------
         torch.Tensor
             Scalar tensor representing the loss.
-
-        Raises
-        ------
-        ValueError
-            If ``batch.targets`` is ``None`` (this loss always requires
-            known reference values).
         """
         # ---------------------------------------------------------------------------
-        x = batch.inputs[self.input_key]
-        target = batch.targets[self.target_key]
-
-        prediction = network(x)
+        predictions = torch.concat([context[key] for key in self.input_keys], dim=1)
+        targets = torch.concat([context[key] for key in self.target_keys], dim=1)
 
         # ---------------------------------------------------------------------------
-        return self.reduction.evaluate(prediction, target)
+        return self.reduction.evaluate(predictions, targets)
 
 #####################################################################################

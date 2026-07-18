@@ -13,11 +13,27 @@ class MetricBase(ABC):
     is only monitored during training/evaluation — it is not used to compute
     gradients or update the network's parameters.
     """
-    # Subclasses should override:
-    name: str       # Name of the metric 
+    def __init__(
+            self,
+            name: str,
+        ) -> None:
+        """
+        Parameters
+        ----------
+        name : str
+            Short identifier used when logging or plotting this metric.
+        """
+        # ---------------------------------------------------------------------------
+        self.name = name
+        # ---------------------------------------------------------------------------
+        return
 
     @abstractmethod
-    def evaluate(self, predictions: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+    def evaluate(
+            self,
+            predictions: torch.Tensor,
+            targets: torch.Tensor,
+        ) -> torch.Tensor:
         """
         Compute the metric value.
 
