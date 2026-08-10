@@ -1,17 +1,12 @@
 # -------------------------------------------------------------------------------- #
 from sciml.contracts.context import Context
-from sciml.core.objective import Objective
-from sciml.core.progress import Progress
-from sciml.core.strategy import Strategy
-from sciml.core.trainer import Trainer
+from sciml.contracts.dataclasses import Evaluation, Step
 
 # -------------------------------------------------------------------------------- #
 __all__ = [
     "Context",
-    "Objective",
-    "Progress",
-    "Strategy",
-    "Trainer",
+    "Evaluation",
+    "Step",
 ]
 
 # -------------------------------------------------------------------------------- #

@@ -1,17 +1,9 @@
 # -------------------------------------------------------------------------------- #
-from sciml import contracts
-from sciml import core
-from sciml import implementations
-from sciml import interfaces
-from sciml import utils
+from sciml.implementations.samplers.latin_hypercube import LatinHypercube
 
 # -------------------------------------------------------------------------------- #
 __all__ = [
-    "contracts",
-    "core",
-    "implementations",
-    "interfaces",
-    "utils",
+    "LatinHypercube",
 ]
 
 # -------------------------------------------------------------------------------- #
