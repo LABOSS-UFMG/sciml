@@ -1,45 +1,108 @@
-#####################################################################################
-from abc import ABC, abstractmethod
-from typing import Any
+# -------------------------------------------------------------------------------- #
+from typing import Sequence, Optional
 
-#####################################################################################
-class TrainerBase(ABC):
+from sciml.interfaces.model import ModelBase
+from sciml.core.objective import Objective
+from sciml.core.strategy import Strategy
+from sciml.core.progress import Progress
+
+# -------------------------------------------------------------------------------- #
+class Trainer():
     """
-    Abstract base class for training neural network models.
-
-    A trainer is the orchestrator of the training loop: it ties together a
-    network, one or more samplers (to generate collocation/boundary/data
-    points), one or more losses (to be minimized), and optionally metrics
-    and callbacks (to monitor and react to training progress).
-
-    Note
-    ----
-    Most users will not need to subclass ``TrainerBase`` directly. Instead,
-    use one of the concrete trainers already provided by the library
-    (e.g. ``StandardTrainer``), and focus on implementing the problem
-    specific parts of your model (namely, a ``LossBase`` subclass).
+    Execute the training of a model using specified objectives and strategies.
     """
 
-    @abstractmethod
-    def fit(self, *args, **kargs) -> Any:
+    def __init__(
+            self,
+            model: ModelBase,
+            objectives: Sequence[Objective],
+            strategies: Sequence[Strategy],
+            results_path: Optional[str] = None,
+        ) -> None:
         """
-        Execute the training process.
+        Parameters
+        ----------
+        model : ModelBase
+            Model to be trained.
+        objectives : Sequence[Objective]
+            Objectives to be optimized.
+        strategies : Sequence[StrategyBase]
+            Strategies to be used for optimization.
+        results_path : Optional[str], default=None
+            Path to a logs files for recording training progress. If None,
+            no logging is performed.
+        """
+        
+        # ------------------------------------------------------------------------ #
+        # Store constructor arguments
+        self.model = model
+        self.objectives = objectives
+        self.strategies = strategies
+        self.results_path = results_path
 
-        Concrete trainers define their own specific signature (e.g. network,
-        samplers, losses, optimizer, number of epochs, callbacks). Consult
-        the docstring of the concrete trainer being used for details.
+        # ------------------------------------------------------------------------ #
+        # Internal parameters
+        self.iteration = 0
+
+        # ------------------------------------------------------------------------ #
+        return
+
+    def fit(
+            self,
+            num_iterations: int,
+            verbose: bool = False,
+            interval: int = 100,
+        ) -> None:
+        """
+        Train the model for a specified number of iterations, applying strategies,
+        objectives, validations, and callbacks as defined in the Trainer.
 
         Parameters
         ----------
-        *args, **kwargs : Any
-            Trainer-specific arguments.
-
-        Returns
-        -------
-        Any
-            The return value is trainer specific (e.g. a training history
-            object with recorded losses and metrics over time).
+        num_iterations : int
+            Number of iterations to train the model.
+        verbose : bool, default=False
+            If True, prints training progress to the console.
         """
-        pass
+        # ------------------------------------------------------------------------ #
+        # Initialize progress tracker
+        progress = Progress(self.strategies)
 
-#####################################################################################
+        # ------------------------------------------------------------------------ #
+        try:
+
+            for iteration in range(num_iterations):
+                # ---------------------------------------------------------------- #
+                # Increase iteration
+                self.iteration += 1
+
+                # ---------------------------------------------------------------- #
+                # Optimize parameters
+                steps = []
+                for strategy in self.strategies:
+                    step = strategy.step(self.iteration, self.model, self.objectives)
+                    if step: steps.append(step)
+
+                # ---------------------------------------------------------------- #
+                # Update progress tracker and show progress
+                progress.update(steps)
+
+                if verbose:
+                    if (
+                        (self.iteration == 1) or
+                        (self.iteration % interval == 0) or
+                        (iteration == num_iterations - 1)
+                        ):
+                        progress.display(self.iteration)
+
+                if self.results_path:
+                    progress.log(self.results_path, self.iteration, steps)
+        
+        # ------------------------------------------------------------------------ #
+        except Exception:
+            raise
+
+        # ------------------------------------------------------------------------ #
+        return
+
+# -------------------------------------------------------------------------------- #

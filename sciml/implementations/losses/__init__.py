@@ -1,17 +1,10 @@
 # -------------------------------------------------------------------------------- #
-from sciml import contracts
-from sciml import core
-from sciml import implementations
-from sciml import interfaces
-from sciml import utils
+from sciml.implementations.losses.residual import Residual
+from sciml.implementations.losses.supervised import Supervised
 
 # -------------------------------------------------------------------------------- #
 __all__ = [
-    "contracts",
-    "core",
-    "implementations",
-    "interfaces",
-    "utils",
+    "Residual",
+    "Supervised",
 ]
-
 # -------------------------------------------------------------------------------- #
