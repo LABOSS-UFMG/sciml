@@ -2,6 +2,7 @@
 from typing import Sequence, Optional
 
 from sciml.interfaces.model import ModelBase
+from sciml.interfaces.callback import CallbackBase
 from sciml.core.objective import Objective
 from sciml.core.strategy import Strategy
 from sciml.core.progress import Progress
@@ -17,6 +18,7 @@ class Trainer():
             model: ModelBase,
             objectives: Sequence[Objective],
             strategies: Sequence[Strategy],
+            callbacks: Sequence[CallbackBase] = [],
             results_path: Optional[str] = None,
         ) -> None:
         """
@@ -28,6 +30,8 @@ class Trainer():
             Objectives to be optimized.
         strategies : Sequence[StrategyBase]
             Strategies to be used for optimization.
+        callbacks : Sequence[CallbackBase], default=[]
+            Callbacks to be executed during training.
         results_path : Optional[str], default=None
             Path to a logs files for recording training progress. If None,
             no logging is performed.
@@ -38,6 +42,7 @@ class Trainer():
         self.model = model
         self.objectives = objectives
         self.strategies = strategies
+        self.callbacks = callbacks
         self.results_path = results_path
 
         # ------------------------------------------------------------------------ #
@@ -69,9 +74,20 @@ class Trainer():
         progress = Progress(self.strategies)
 
         # ------------------------------------------------------------------------ #
+        # Callbacks
+        for callback in self.callbacks:
+            callback.on_train_start()
+
+        # ------------------------------------------------------------------------ #
         try:
 
             for iteration in range(num_iterations):
+
+                # ---------------------------------------------------------------- #
+                # Callbacks
+                for callback in self.callbacks:
+                    callback.on_iteration_start()
+
                 # ---------------------------------------------------------------- #
                 # Increase iteration
                 self.iteration += 1
@@ -95,12 +111,28 @@ class Trainer():
                         ):
                         progress.display(self.iteration)
 
+                # ---------------------------------------------------------------- #
+                # Callbacks
+                for callback in self.callbacks:
+                    callback.on_iteration_end()
+
                 if self.results_path:
                     progress.log(self.results_path, self.iteration, steps)
         
         # ------------------------------------------------------------------------ #
         except Exception:
+
+            # ---------------------------------------------------------------- #
+            # Callbacks
+            for callback in self.callbacks:
+                callback.on_exception()
+
             raise
+
+        # ------------------------------------------------------------------------ #
+        # Callbacks
+        for callback in self.callbacks:
+            callback.on_train_end()
 
         # ------------------------------------------------------------------------ #
         return
