@@ -212,11 +212,11 @@ class LatinHypercube(SamplerBase):
         context = Context()
         
         for i, key in enumerate(self.input_keys):
-            context[key] = batch[0][:, i:i+1]
+            context[key] = (batch[0][:, i:i+1]).to(device=self.device)
         
         if not (batch[1] is None):
             for i, key in enumerate(self.target_keys):
-                context[key] = batch[1][:, i:i+1]
+                context[key] = (batch[1][:, i:i+1]).to(device=self.device)
         
         # ------------------------------------------------------------------------ #
         return context
