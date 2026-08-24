@@ -71,8 +71,7 @@ class Trainer():
         """
         # ------------------------------------------------------------------------ #
         # Initialize progress tracker
-        if self.iteration == 0:
-            progress = Progress(self.strategies)
+        progress = Progress(self.strategies)
 
         # ------------------------------------------------------------------------ #
         # Callbacks
