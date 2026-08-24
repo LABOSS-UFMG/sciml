@@ -2,7 +2,7 @@
 import torch
 
 from dataclasses import dataclass, field
-from typing import Dict, Sequence
+from typing import Dict, Sequence, Optional
 
 # -------------------------------------------------------------------------------- #
 @dataclass(slots=True)
@@ -12,7 +12,7 @@ class Evaluation():
     name: str
 
     # Objective function value
-    objective: torch.Tensor = field(default_factory=lambda: torch.tensor(0.0))
+    objective: Optional[torch.Tensor] = None
 
     # Losses and its corresponding weights
     losses: Dict[str, float] = field(default_factory=dict)

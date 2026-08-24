@@ -65,7 +65,11 @@ class Objective():
         for loss in self.losses:
             v = loss.evaluate(context)
 
-            evaluation.objective += v * loss.weight
+            if evaluation.objective is None:
+                evaluation.objective = v * loss.weight
+            else:
+                evaluation.objective += v * loss.weight
+
             evaluation.losses[loss.name] = v.item()
             evaluation.weights[loss.name] = loss.weight
 
