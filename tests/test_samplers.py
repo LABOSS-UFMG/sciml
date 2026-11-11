@@ -40,6 +40,24 @@ def test_target_fn_populates_targets():
 
     assert torch.allclose(context["y"], context["x"] * 2)
 
+def test_positional_targets_bounds_and_insertions():
+    input_keys = ["x", "t"]
+    target_keys = ["y"]
+    bounds = [(0, (2.0, 4.0))]
+    insertions = [(1, 5.0)]
+
+    def target_fn(x, t):
+        return 2 * x + t
+
+    sampler = LatinHypercube(
+        2, 10, 10, input_keys, target_keys, target_fn, bounds, insertions, seed=0,
+    )
+    context = sampler.next()
+
+    assert torch.all((context["x"] >= 2.0) & (context["x"] <= 4.0))
+    assert torch.all(context["t"] == 5.0)
+    torch.testing.assert_close(context["y"], 2 * context["x"] + context["t"])
+
 def test_cycles_back_to_first_batch():
     sampler = LatinHypercube(dim=1, num_points=10, batch_size=5, seed=0)
 

@@ -58,12 +58,12 @@ class LatinHypercube(SamplerBase):
             self,
             dim: int,
             num_points: int,
-            batch_size: int,
+            batch_size: int = None,
             input_keys: Optional[Iterable[str]] = None,
-            bounds: Optional[List[Tuple[int, Tuple[float, float]]]] = None,
-            insertions: Optional[List[Tuple[int, float]]] = None,
             target_keys: Optional[Iterable[str]] = None,
             target_fn: Optional[Callable[[Iterable[np.ndarray]], Iterable[np.ndarray]]] = None,
+            bounds: Optional[List[Tuple[int, Tuple[float, float]]]] = None,
+            insertions: Optional[List[Tuple[int, float]]] = None,
             seed: Optional[int] = None,
             device: str = "cpu",
             dtype: torch.dtype = torch.float32,
@@ -75,20 +75,14 @@ class LatinHypercube(SamplerBase):
             Number of input dimensions.
         num_points : int
             Total number of sampling points.
-        batch_size : int
+        batch_size : int | None
             Number of points returned by each call to :meth:`next`. The last
             batch may contain fewer than ``batch_size`` points if
-            ``num_points`` is not an exact multiple of ``batch_size``.
-         input_keys : Iterable[str]
+            ``num_points`` is not an exact multiple of ``batch_size``. If
+            None, it defines full batch.
+        input_keys : Iterable[str]
             Names used to store the sampled input variables in the returned
             :class:`Context`. The number of keys must equal ``dim``.
-        bounds : List[Tuple[int, Tuple[float, float]]], optional
-            List of ``(dimension, (lower, upper))`` tuples specifying the
-            sampling interval for selected dimensions. Dimensions not listed
-            remain sampled over the unit interval ``[0, 1]``.
-        insertions : List[Tuple[int, float]], optional
-            List of ``(dimension, value)`` tuples specifying dimensions whose
-            sampled values are replaced by a constant.
         target_keys : Iterable[str], optional
             Names used to store the target variables returned by
             ``target_fn``.
@@ -96,6 +90,13 @@ class LatinHypercube(SamplerBase):
             Function used to generate target variables from the sampled input
             points. The function receives one NumPy array for each input
             dimension and returns one NumPy array for each target variable.
+        bounds : List[Tuple[int, Tuple[float, float]]], optional
+            List of ``(dimension, (lower, upper))`` tuples specifying the
+            sampling interval for selected dimensions. Dimensions not listed
+            remain sampled over the unit interval ``[0, 1]``.
+        insertions : List[Tuple[int, float]], optional
+            List of ``(dimension, value)`` tuples specifying dimensions whose
+            sampled values are replaced by a constant.
         seed : int, optional
             Seed used by the underlying Latin Hypercube generator.
         device : str, default="cpu"
@@ -111,17 +112,17 @@ class LatinHypercube(SamplerBase):
         if num_points <= 0:
             raise ValueError("num_points must be greater than 0.")
 
-        if batch_size <= 0:
+        if not (batch_size is None) and batch_size <= 0:
             raise ValueError("batch_size must be greater than 0.")
 
-        if batch_size > num_points:
+        if not (batch_size is None) and batch_size > num_points:
             raise ValueError("num_points must be greater than batch_size.")
 
         # ------------------------------------------------------------------------ #-
         # > Inputs
         self.dim = dim
         self.num_points = num_points
-        self.batch_size = batch_size
+        self.batch_size = batch_size if not (batch_size is None) else num_points
         self.input_keys = input_keys if not (input_keys is None) else [f"x{i+1}" for i in range(dim)]
         self.bounds = bounds
         self.insertions = insertions

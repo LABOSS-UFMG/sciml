@@ -59,6 +59,12 @@ class Context():
         -------
         Tuple[torch.Tensor, str]
             Requested partial derivative and its key
+
+        Notes
+        -----
+        Pointwise derivatives assume one scalar output per sample and
+        independent samples. BatchNorm using batch statistics couples samples.
+        For pure derivatives of order > 1, use a single coordinate column.
         """
         # ------------------------------------------------------------------------ #
         # Validate input arguments

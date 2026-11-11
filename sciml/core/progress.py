@@ -1,4 +1,5 @@
 # -------------------------------------------------------------------------------- #
+import csv
 import os
 import time
 
@@ -161,15 +162,9 @@ class Progress():
         """
         Append one row per active strategy to its own log file.
 
-        Each strategy gets its own text file, named ``<strategy>.log``
-        inside ``path``, with one row per iteration where that strategy
-        was active. Columns are, in order: the iteration, the objective
-        function value, the individual losses of every evaluation in the
-        step (named ``<objective>.<loss>``) and, last, the ratio to the
-        initial objective value. The first column is always the
-        iteration, so the file can later be imported (e.g. with
-        ``pandas.read_csv``) to inspect the training history of a single
-        strategy.
+        Each ``<strategy>_log.csv`` contains the iteration, the ratio to
+        the initial objective, the total objective and one column per
+        loss named ``<objective>.<loss>``.
 
         Parameters
         ----------
@@ -184,37 +179,51 @@ class Progress():
             appended to its log file.
         """
         # ------------------------------------------------------------------------ #
-        os.makedirs(path, exist_ok=True)
-
         for step in steps:
             value = sum(evaluation.objective.item() for evaluation in step.evaluations)
             initial = self.initial.get(step.name, value)
             ratio = value / initial if initial else 0.0
 
             losses = {
-                f"{loss_name}": loss_value
+                f"{evaluation.name}.{loss_name}": loss_value
                 for evaluation in step.evaluations
                 for loss_name, loss_value in evaluation.losses.items()
             }
 
             # -------------------------------------------------------------------- #
             file_path = os.path.join(path, f"{step.name}_log.csv")
-            is_new_file = not os.path.exists(file_path)
-
-            with open(file_path, "a") as file:
-                if is_new_file:
-                    header = ["iteration", "ratio", "objective", *losses.keys()]
-                    file.write(",".join(header) + "\n")
-
-                row = [
-                    str(iteration),
-                    f"{ratio:.10e}",
-                    f"{value:.10e}",
-                    *(f"{loss_value:.10e}" for loss_value in losses.values()),
-                ]
-                file.write(",".join(row) + "\n")
+            header = ["iteration", "ratio", "objective", *losses]
+            row = [
+                str(iteration),
+                f"{ratio:.10e}",
+                f"{value:.10e}",
+                *(f"{loss_value:.10e}" for loss_value in losses.values()),
+            ]
+            self._append_row(file_path, header, row)
 
         # ------------------------------------------------------------------------ #
         return
+
+    def log_validation(self, path: str, iteration: int, losses: Dict[str, float]) -> None:
+        """Append the iteration and each objective.loss value to validation_log.csv."""
+        file_path = os.path.join(path, "validation_log.csv")
+        header = ["iteration", *losses]
+        row = [str(iteration), *(f"{value:.10e}" for value in losses.values())]
+        self._append_row(file_path, header, row)
+
+    @staticmethod
+    def _append_row(file_path: str, header: Sequence[str], row: Sequence[str]) -> None:
+        """Append a history row after checking the column names and order."""
+        os.makedirs(os.path.dirname(file_path) or ".", exist_ok=True)
+        with open(file_path, "a+", newline="") as file:
+            file.seek(0)
+            existing_header = next(csv.reader(file), None)
+            writer = csv.writer(file, lineterminator="\n")
+            if existing_header is None:
+                writer.writerow(header)
+            elif existing_header != header:
+                raise ValueError(f"Incompatible history columns in {file_path}. "
+                                 "Use a new results directory or migrate the CSV header.")
+            writer.writerow(row)
 
 # -------------------------------------------------------------------------------- #

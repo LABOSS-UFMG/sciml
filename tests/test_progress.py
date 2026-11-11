@@ -1,4 +1,7 @@
 # -------------------------------------------------------------------------------- #
+import csv
+
+import pytest
 import torch
 
 from sciml.core.objective import Objective
@@ -58,5 +61,30 @@ def test_log_writes_header_once_and_skips_inactive_strategy(tmp_path):
     assert len(lines) == 1 + 3   # header + one row per iteration
 
     assert not (tmp_path / "b_log.csv").exists()
+
+def test_log_preserves_same_named_losses_from_different_objectives(tmp_path):
+    model = LinearModel()
+    model.network.weight.data.fill_(1.0)
+    strategy, = _make_strategies(model, ["adam"])
+    objectives = [
+        Objective(name, ConstantSampler(value=x), [SquaredLoss(name="mse", weight=1.0)])
+        for name, x in [("interior", 2.0), ("contorno", 3.0)]
+    ]
+    step = strategy.step(1, model, objectives)
+    progress = Progress([strategy])
+    progress.log(str(tmp_path), 1, [step])
+
+    path = tmp_path / "adam_log.csv"
+    with path.open(newline="") as file:
+        row, = csv.DictReader(file)
+    assert float(row["interior.mse"]) == 4.0
+    assert float(row["contorno.mse"]) == 9.0
+    assert float(row["objective"]) == 13.0
+
+    legacy = "iteration,ratio,objective,mse\n1,1,13,9\n"
+    path.write_text(legacy)
+    with pytest.raises(ValueError, match="Incompatible history columns"):
+        progress.log(str(tmp_path), 2, [step])
+    assert path.read_text() == legacy
 
 # -------------------------------------------------------------------------------- #
