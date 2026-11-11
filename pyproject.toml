@@ -5,11 +5,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sciml"
-version = "0.1.0"
+version = "1.0.0"
 description = "Framework for building Physics-Informed Neural Networks (PINNs) in Python."
 authors = [{ name="Lucas Ribeiro Alves", email="lucas.ra.mast@gmail.com" }]
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "torch>=2.4.0",
     "numpy>=2.0",
@@ -29,6 +29,7 @@ issues = "https://github.com/LABOSS-UFMG/sciml/issues"
 
 [tool.setuptools.packages.find]
 where = [""]
+include = ["sciml", "sciml.*"]
 
 [tool.pytest.ini_options]
 pythonpath = [""]

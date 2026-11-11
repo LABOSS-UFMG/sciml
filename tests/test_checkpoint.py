@@ -2,6 +2,7 @@
 import pytest
 import torch
 
+from sciml.core import Checkpoint, Strategy
 from sciml.utils.checkpoint import save_checkpoint, load_checkpoint
 
 # -------------------------------------------------------------------------------- #
@@ -37,5 +38,21 @@ def test_load_raises_on_optimizer_name_mismatch(tmp_path):
     net2 = torch.nn.Linear(2, 1)
     with pytest.raises(ValueError):
         load_checkpoint(path, net2, {"sgd": torch.optim.SGD(net2.parameters(), lr=0.1)})
+
+def test_checkpoint_files_can_be_restored_by_iteration(tmp_path):
+    net = torch.nn.Linear(1, 1)
+    optimizer = torch.optim.Adam(net.parameters())
+    directory = tmp_path / "results"
+    checkpoint = Checkpoint(directory, net, [Strategy("adam", optimizer)], prefix="pinn")
+
+    for iteration in (10, 20):
+        with torch.no_grad():
+            net.weight.fill_(iteration)
+        checkpoint.save(iteration)
+
+    assert {path.name for path in directory.iterdir()} == {"pinn_10.pt", "pinn_20.pt"}
+    for iteration in (20, 10):
+        assert checkpoint.load(iteration)["iteration"] == iteration
+        assert net.weight.item() == iteration
 
 # -------------------------------------------------------------------------------- #
