@@ -29,6 +29,7 @@ issues = "https://github.com/LABOSS-UFMG/sciml/issues"
 
 [tool.setuptools.packages.find]
 where = [""]
+include = ["sciml", "sciml.*"]
 
 [tool.pytest.ini_options]
 pythonpath = [""]
