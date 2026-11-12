@@ -24,7 +24,7 @@ def test_update_tracks_active_and_inactive_strategies():
     progress = Progress([strategy_a, strategy_b])
     step_a = strategy_a.step(1, model, [objective])   # only "a" runs this iteration
 
-    progress.update([step_a])
+    progress.update([step_a], 1)
 
     assert progress.active == {"a": True, "b": False}
     assert "a" in progress.current
@@ -37,7 +37,7 @@ def test_render_live_tags_inactive_strategies():
 
     progress = Progress([strategy_a, strategy_b])
     step_a = strategy_a.step(1, model, [objective])
-    progress.update([step_a])
+    progress.update([step_a], 1)
 
     block = progress.render_live(1)
 
@@ -49,18 +49,21 @@ def test_log_writes_header_once_and_skips_inactive_strategy(tmp_path):
     objective = Objective(name="obj", sampler=ConstantSampler(), losses=[SquaredLoss(name="l", weight=1.0)])
     strategy_a, strategy_b = _make_strategies(model, ["a", "b"])
 
-    progress = Progress([strategy_a, strategy_b])
+    progress = Progress([strategy_a, strategy_b], path=tmp_path, filename="history.csv")
 
     for iteration in range(1, 4):
         steps = [strategy_a.step(iteration, model, [objective])]   # "b" never runs
-        progress.update(steps)
-        progress.log(str(tmp_path), iteration, steps)
+        progress.update(steps, iteration)
+        assert not (tmp_path / "a_history.csv").exists()
 
-    lines = (tmp_path / "a_log.csv").read_text().splitlines()
+    progress.save()
+    progress.save()
+
+    lines = (tmp_path / "a_history.csv").read_text().splitlines()
     assert lines[0].split(",")[:3] == ["iteration", "ratio", "objective"]
     assert len(lines) == 1 + 3   # header + one row per iteration
 
-    assert not (tmp_path / "b_log.csv").exists()
+    assert not (tmp_path / "b_history.csv").exists()
 
 def test_log_preserves_same_named_losses_from_different_objectives(tmp_path):
     model = LinearModel()
@@ -71,8 +74,9 @@ def test_log_preserves_same_named_losses_from_different_objectives(tmp_path):
         for name, x in [("interior", 2.0), ("contorno", 3.0)]
     ]
     step = strategy.step(1, model, objectives)
-    progress = Progress([strategy])
-    progress.log(str(tmp_path), 1, [step])
+    progress = Progress([strategy], path=tmp_path)
+    progress.update([step], 1)
+    progress.save()
 
     path = tmp_path / "adam_log.csv"
     with path.open(newline="") as file:
@@ -83,8 +87,9 @@ def test_log_preserves_same_named_losses_from_different_objectives(tmp_path):
 
     legacy = "iteration,ratio,objective,mse\n1,1,13,9\n"
     path.write_text(legacy)
+    progress.update([step], 2)
     with pytest.raises(ValueError, match="Incompatible history columns"):
-        progress.log(str(tmp_path), 2, [step])
+        progress.save()
     assert path.read_text() == legacy
 
 # -------------------------------------------------------------------------------- #

@@ -2,11 +2,12 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 
+from os import PathLike
 from typing import Sequence, Optional, Tuple
 
 # -------------------------------------------------------------------------------- #
 def plot_history(
-        csv: str | pd.DataFrame,
+        csv: str | PathLike[str] | pd.DataFrame,
         y_keys: Sequence[str],
         x_key: str = "iteration",
         figsize: Tuple[float] = (6, 4),
@@ -22,8 +23,8 @@ def plot_history(
 
     Parameters
     ----------
-    csv : str
-        Path to the csv file containing the optimization history.
+    csv : str, path-like or pandas.DataFrame
+        Path to a CSV file or a table containing the optimization history.
     y_keys : Sequence[str]
         List of keys to plot on the y-axis.
     x_key : str, optional
@@ -43,7 +44,7 @@ def plot_history(
     """
     # ------------------------------------------------------------------------ #
     # Update the function to read the csv file and plot the optimization history
-    if isinstance(csv, str):
+    if isinstance(csv, (str, PathLike)):
         data = pd.read_csv(csv)
     else:
         data = csv
