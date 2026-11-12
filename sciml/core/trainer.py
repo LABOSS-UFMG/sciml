@@ -1,6 +1,7 @@
 # -------------------------------------------------------------------------------- #
 import torch
 
+from time import perf_counter
 from typing import Dict, Sequence, Optional
 
 from sciml.interfaces.model import ModelBase
@@ -21,12 +22,13 @@ class Trainer():
             model: ModelBase,
             objectives: Sequence[Objective],
             strategies: Sequence[Strategy],
+            progress: Optional[Progress] = None,
             callbacks: Sequence[CallbackBase] = [],
-            results_path: Optional[str] = None,
             checkpoint: Optional[Checkpoint] = None,
             checkpoint_interval: int = 100,
             validation: Optional[Sequence[Objective]] = None,
             validation_interval: int = 100,
+            
         ) -> None:
         """
         Parameters
@@ -37,11 +39,10 @@ class Trainer():
             Objectives to be optimized.
         strategies : Sequence[StrategyBase]
             Strategies to be used for optimization.
+        progress : Progress, optional
+            Tracker for these strategies. Pending history is saved at the end of each fit call.
         callbacks : Sequence[CallbackBase], default=[]
             Callbacks to be executed during training.
-        results_path : Optional[str], default=None
-            Path to a logs files for recording training progress. If None,
-            no logging is performed.
         checkpoint : Checkpoint, optional
             Checkpoint configured with the network and strategies used for training.
         checkpoint_interval : int, default=100
@@ -60,16 +61,14 @@ class Trainer():
             raise ValueError("checkpoint_interval must be a positive integer.")
         if type(validation_interval) is not int or validation_interval <= 0:
             raise ValueError("validation_interval must be a positive integer.")
-        if validation and results_path and any(s.name == "validation" for s in strategies):
-            raise ValueError("The strategy name 'validation' conflicts with validation_log.csv.")
         
         # ------------------------------------------------------------------------ #
         # Store constructor arguments
         self.model = model
         self.objectives = objectives
         self.strategies = strategies
+        self.progress = progress
         self.callbacks = callbacks
-        self.results_path = results_path
         self.checkpoint = checkpoint
         self.checkpoint_interval = checkpoint_interval
         self.validation = validation if validation is not None else ()
@@ -78,38 +77,14 @@ class Trainer():
         # ------------------------------------------------------------------------ #
         # Internal parameters
         self.iteration = 0
+        self.optimization_s = self.elapsed_s = 0.0
 
         # ------------------------------------------------------------------------ #
         return
 
-    def _validate(self) -> Dict[str, float]:
-        """Evaluate held-out losses with input derivatives enabled."""
-        network = self.model if isinstance(self.model, torch.nn.Module) else getattr(self.model, "network", None)
-        modes = {}
-        losses = {}
-        try:
-            if isinstance(network, torch.nn.Module):
-                modes = {module: module.training for module in network.modules()}
-                network.eval()
-
-            with torch.enable_grad():
-                for objective in self.validation:
-                    evaluation = objective.evaluate(self.model)
-                    for name, value in evaluation.losses.items():
-                        key = f"{evaluation.name}.{name}"
-                        if key in losses:
-                            raise ValueError(f"Duplicate validation loss column: {key}")
-                        losses[key] = value
-        finally:
-            for module, training in modes.items():
-                module.training = training
-        return losses
-
     def fit(
             self,
             num_iterations: int,
-            verbose: bool = False,
-            interval: int = 100,
         ) -> None:
         """
         Train the model for a specified number of iterations, applying strategies,
@@ -119,15 +94,11 @@ class Trainer():
         ----------
         num_iterations : int
             Number of iterations to train the model.
-        verbose : bool, default=False
-            If True, prints training progress to the console.
         """
         # ------------------------------------------------------------------------ #
-        # Initialize progress tracker
-        progress = Progress(self.strategies)
-
-        # ------------------------------------------------------------------------ #
         # Callbacks
+        fit_start = perf_counter()
+        previous_elapsed = self.elapsed_s
         for callback in self.callbacks:
             callback.on_train_start()
 
@@ -148,39 +119,44 @@ class Trainer():
                 # ---------------------------------------------------------------- #
                 # Optimize parameters
                 steps = []
+                step_start = perf_counter()
                 for strategy in self.strategies:
                     step = strategy.step(self.iteration, self.model, self.objectives)
                     if step: steps.append(step)
+                self.optimization_s += perf_counter() - step_start
 
                 # ---------------------------------------------------------------- #
                 # Update progress tracker and show progress
-                progress.update(steps)
-
-                if verbose:
-                    if (
-                            (self.iteration == 1) or
-                            (self.iteration % interval == 0) or
-                            (iteration == num_iterations - 1)
-                        ):
-                        progress.display(self.iteration)
+                if self.progress is not None:
+                    self.progress.update(steps, self.iteration)
+                    self.progress.display_if_due(self.iteration, final=iteration == num_iterations - 1)
 
                 # ---------------------------------------------------------------- #
                 # Callbacks
                 for callback in self.callbacks:
                     callback.on_iteration_end()
 
-                if self.results_path:
-                    progress.log(self.results_path, self.iteration, steps)
-
                 # ---------------------------------------------------------------- #
                 # Evaluate validation objectives once after all optimization steps
-                if self.validation and (
-                        self.iteration % self.validation_interval == 0
-                        or iteration == num_iterations - 1
+                if (
+                        self.progress is not None and
+                        self.validation and
+                        (
+                            self.iteration % self.validation_interval == 0
+                            or iteration == num_iterations - 1
+                        )
                     ):
-                    losses = self._validate()
-                    if self.results_path:
-                        progress.log_validation(self.results_path, self.iteration, losses)
+                    # Compute validation losses
+                    losses = {}
+                    with self.model.evaluation_mode(), torch.enable_grad():
+                        for objective in self.validation:
+                            evaluation = objective.evaluate(self.model)
+                            for name, value in evaluation.losses.items():
+                                key = f"{evaluation.name}.{name}"
+                                losses[key] = value
+
+                    # Update progress
+                    self.progress.update_validation(self.iteration, losses)
 
                 # ---------------------------------------------------------------- #
                 # Save periodic and final checkpoints after all strategies finish
@@ -189,6 +165,13 @@ class Trainer():
                         or iteration == num_iterations - 1
                     ):
                     self.checkpoint.save(self.iteration)
+
+                self.elapsed_s = previous_elapsed + (perf_counter() - fit_start)
+                if self.progress is not None:
+                    self.progress.record_times(self.iteration, self.optimization_s, self.elapsed_s)
+
+            if self.progress is not None:
+                self.progress.save()
         
         # ------------------------------------------------------------------------ #
         except Exception:

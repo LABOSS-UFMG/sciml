@@ -43,8 +43,8 @@ class Context():
 
         If the requested derivative has already been computed during the
         current evaluation, the cached value is returned. Otherwise, the
-        derivative is computed using automatic differentiation and stored
-        for future reuse.
+        derivative is computed using automatic differentiation. Intermediate
+        orders are cached and can be reused within the same evaluation.
 
         Parameters
         ----------
@@ -79,7 +79,13 @@ class Context():
         key = self._get_key(y, x, order)
 
         if key not in self.cache:
-            self.cache[key] = derivative(self.cache[y], self.cache[x], order)
+            if order > 1:
+                previous = y
+                for degree in range(1, order + 1):
+                    value, previous = self.partial(previous, x)
+                    self.cache[self._get_key(y, x, degree)] = value
+            else:
+                self.cache[key] = derivative(self.cache[y], self.cache[x], order)
 
         # ------------------------------------------------------------------------ #
         return (self.cache[key], key)
